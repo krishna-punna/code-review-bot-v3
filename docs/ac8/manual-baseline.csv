@@ -1,0 +1,7 @@
+# AC8 manual review baseline. One row per reviewer per sample, reviewed WITHOUT the bot.
+# How to record it: docs/AC8-time-to-decision.md, "Recording the manual baseline".
+# Columns: sample = folder name (01-clean-change-approve, 02-warnings-request-changes, 03-errors-block, samples-rejudge);
+# minutes_to_decision = from opening the change to writing down a merge decision; decision = APPROVE, REQUEST_CHANGES or BLOCK;
+# issues_reported / issues_with_location / issues_with_fix = problems written down, of those how many named file and line,
+# and how many said what to change; review_rounds = rounds until you would approve (samples-rejudge), 1 for the others.
+sample,reviewer,minutes_to_decision,decision,issues_reported,issues_with_location,issues_with_fix,review_rounds
