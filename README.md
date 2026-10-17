@@ -67,19 +67,6 @@ scripts/rejudge-demo.sh            # all rounds of the sample, checked
 
 The REST API has `POST /api/reviews/rejudge` for the same. Details: [docs/REJUDGE.md](docs/REJUDGE.md).
 
-## Time to decision and review clarity (AC8)
-
-`benchmark` times the bot's verdict on the sample PRs and writes a report comparing it with the manual
-review baseline: time to decision, review rounds and clarity. `history` adds a repository's real review
-history (time to first human review, rounds of requested changes):
-
-```bash
-java -jar target/code-review-bot-v3-3.0.0.jar benchmark --baseline docs/ac8/manual-baseline.csv   # target/ac8/ac8-report.md
-java -jar target/code-review-bot-v3-3.0.0.jar history --repo OWNER/NAME
-```
-
-How to record the manual baseline, and the measured results: [docs/AC8-time-to-decision.md](docs/AC8-time-to-decision.md).
-
 ## Automatic polling (no webhook setup needed)
 
 `PullRequestPoller` runs on a schedule. It lists the open PRs in each configured repo and sends every PR that needs a review to the same `/webhook` endpoint, signed with your secret. The webhook code is unchanged; the poller is just a second caller.
@@ -105,6 +92,19 @@ Or set them through environment variables: `POLLER_ENABLED`, `POLLER_REPOS`, `PO
 
 Cron examples: every minute is `0 * * * * *`, every 15 minutes is `0 0/15 * * * *`, and weekdays 9am to 7pm every 10 minutes is `0 0/10 9-19 * * MON-FRI`.
 
+## Time to decision and review clarity (AC8)
+
+`benchmark` times the bot's verdict on the sample PRs and writes a report comparing it with the manual
+review baseline: time to decision, review rounds and clarity. `history` adds a repository's real review
+history (time to first human review, rounds of requested changes):
+
+```bash
+java -jar target/code-review-bot-v3-3.0.0.jar benchmark --baseline docs/ac8/manual-baseline.csv   # target/ac8/ac8-report.md
+java -jar target/code-review-bot-v3-3.0.0.jar history --repo OWNER/NAME
+```
+
+How to record the manual baseline, and the measured results: [docs/AC8-time-to-decision.md](docs/AC8-time-to-decision.md).
+
 ## Project layout
 
 | Package | What's in it |
@@ -117,8 +117,8 @@ Cron examples: every minute is `0 * * * * *`, every 15 minutes is `0 0/15 * * * 
 | `poller` | `PullRequestPoller`: scheduled job that finds PRs and calls `/webhook` |
 | `api` | `ReviewApiController`: `POST /api/reviews` |
 | `cli` | `ReviewCli`: the `review` and `request` commands |
-| `config` | `ReviewProperties`, `PollerProperties` (yml binding), `GitHubConfig` |
 | `metrics` | `Benchmark`, `ManualBaseline`, `PrHistory`, `Ac8Report`, `MetricsCli` (the `benchmark` and `history` commands, AC8) |
+| `config` | `ReviewProperties`, `PollerProperties` (yml binding), `GitHubConfig` |
 | `rejudge` | `RejudgeService` (fix-and-rejudge, AC6), `ReviewState`, `Rejudge`, `RejudgeFormatter`; `POST /api/reviews/rejudge` is `api.RejudgeApiController` |
 
 Outside `src/`: `samples/` (synthetic PRs), `samples-rejudge/` (one PR fixed over three rounds, AC6), `scripts/` (demo and sample helpers), `docs/` (architecture, demo walkthrough, fix-and-rejudge).
