@@ -13,7 +13,7 @@ usage="usage: $0 samples/<name> <path-to-sandbox-clone>"
 sample="$(cd "${1:?$usage}" && pwd)"
 clone="$(cd "${2:?$usage}" && pwd)"
 name="$(basename "$sample")"
-title="$(sed -n 's/^title=//p' "$sample/expected.properties")"
+title="$(sed -n 's/^title=//p' "$sample/expected.properties" | tr -d '\r')"
 branch="sample/$name"
 
 if ! git -C "$clone" diff --quiet || ! git -C "$clone" diff --cached --quiet; then

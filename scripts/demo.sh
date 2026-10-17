@@ -19,7 +19,7 @@ if [ ! -f "$JAR" ]; then
   mvn -q -B -DskipTests package
 fi
 
-prop() { sed -n "s/^$2=//p" "$1/expected.properties"; }
+prop() { sed -n "s/^$2=//p" "$1/expected.properties" | tr -d '\r'; }   # tr: CRLF checkouts on Windows
 json_field() { grep -o "\"$2\" *: *\"[^\"]*\"" "$1" | head -1 | sed 's/.*: *"\(.*\)"$/\1/'; }
 
 results=()
