@@ -1,0 +1,52 @@
+server:
+  port: 8080
+
+review:
+  # Token needs: Pull requests (read/write), Contents (read), Commit statuses (read/write)
+#  github-token: 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
+  github-token:
+  webhook-secret:
+  status-context: rule-review
+
+  # Automatic PR polling. Finds PRs that need a review and sends them to /webhook.
+  # Works alongside the real GitHub webhook; PRs already reviewed are skipped.
+  poller:
+    enabled: ${POLLER_ENABLED:true}
+    # Comma-separated owner/repo list
+    repos: "${POLLER_REPOS:krishna-punna/daily-rupi}"
+    # Spring cron: sec min hour day month weekday. Default = every 5 minutes.
+    cron: "${POLLER_CRON:0 0/5 * * * *}"
+    webhook-url: http://localhost:${server.port}/webhook
+
+  # Merge verdict policy (deterministic). Checked top to bottom:
+  #   any finding at a block-on severity           -> BLOCK
+  #   else any finding at a request-changes-on one -> REQUEST_CHANGES
+  #   else                                         -> APPROVE
+  # A severity in neither list is advisory (reported, never affects the verdict).
+  verdict:
+    block-on: [BLOCK, ERROR]
+    request-changes-on: [WARNING]
+    fail-gate-on: [BLOCK, REQUEST_CHANGES]   # verdicts that turn the rule-review status red
+
+  # Path prefixes the bot never reviews
+  exclude-paths:
+    - "target/"
+    - "src/main/generated/"
+
+  # Per-rule overrides. Omit a rule to use its defaults.
+  # severity: WARNING | ERROR | BLOCK   (category is fixed per rule)
+  rules:
+    no-system-out:
+      enabled: true
+      severity: ERROR
+    no-field-injection:
+      enabled: true
+      severity: WARNING
+    max-method-length:
+      enabled: true
+      severity: WARNING
+      params:
+        max-lines: "50"
+    layer-dependency:          # ARCHITECTURE: controllers must not import repositories
+      enabled: true
+      severity: ERROR
