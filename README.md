@@ -21,10 +21,12 @@ Every review ends in exactly one verdict: **APPROVE**, **REQUEST_CHANGES** or **
 
 `PullRequestPoller` runs on a schedule. It lists the open PRs in each configured repo and sends every PR that needs a review to the same `/webhook` endpoint, signed with your secret. The webhook code is unchanged; the poller is just a second caller.
 
+The poller is off by default. It still needs `GITHUB_WEBHOOK_SECRET` (any value) so it can sign its requests, even if no GitHub webhook is set up.
+
 A PR is sent only if all of these are true:
 - It is open and not a draft.
 - The poller hasn't already sent its current head commit.
-- Its head commit has no finished `rule-review` status yet. This means PRs already reviewed by the real webhook, or before a restart, are skipped.
+- Its head commit has no `success` or `failure` `rule-review` status yet. This means PRs already reviewed by the real webhook, or before a restart, are skipped. A review that crashed leaves an `error` status, and that commit is sent again after a restart.
 
 A new push changes the head commit, so the PR is picked up again on the next run.
 
@@ -44,9 +46,10 @@ Cron examples: every minute is `0 * * * * *`, every 15 minutes is `0 0/15 * * * 
 
 | Package | What's in it |
 |---|---|
-| `rule` | `Rule` interface, `Violation`, `Severity`, `FileContext`, `RuleEngine` |
-| `rule.impl` | Sample rules: `no-system-out`, `no-field-injection`, `max-method-length` |
+| `rule` | `Rule` interface, `Finding`, `Severity`, `Category`, `FileContext`, `RuleEngine` |
+| `rule.impl` | Sample rules: `no-system-out`, `no-field-injection`, `max-method-length`, `layer-dependency` |
 | `github` | `WebhookController`, `PullRequestReviewer`, `DiffParser` |
+| `verdict` | `VerdictEngine`, `Verdict`, `VerdictFormatter`, `VerdictProperties` |
 | `config` | `ReviewProperties`, `PollerProperties` (yml binding), `GitHubConfig` |
 | `poller` | `PullRequestPoller`: scheduled job that finds PRs and calls `/webhook` |
 
@@ -118,16 +121,18 @@ Rules report findings on any line. The engine drops findings on lines the PR did
 
 ```bash
 export GITHUB_TOKEN=...            # fine-grained PAT: Pull requests RW, Contents R, Commit statuses RW
-export GITHUB_WEBHOOK_SECRET=...   # same value as in the repo's webhook settings
+export GITHUB_WEBHOOK_SECRET=...   # required; same value as in the repo's webhook settings
 mvn test
 mvn spring-boot:run
 ```
 
 In the repo, go to **Settings → Webhooks** and add `https://<host>/webhook` with content type `application/json`, the same secret, and the "Pull requests" event. For local testing, expose port 8080 with a tunnel such as ngrok or smee.io.
 
+`/webhook` rejects every request (401) while no secret is set. Keep the token and secret in the environment, never in `application.yml`.
+
 ## Known limits and next steps
 
-- **Line-anchored rules**: `max-method-length` reports on the method's first line, so it only fires if the PR touches the signature. To catch edits deeper in a method, give `Violation` a line range and match on any changed line in it.
+- **Line-anchored rules**: `max-method-length` reports on the method's first line, so it only fires if the PR touches the signature. To catch edits deeper in a method, give `Finding` a line range and match on any changed line in it.
 - **Re-pushes**: every push posts a new review. To avoid noise, store a fingerprint of `ruleId + path + line text` and skip findings already posted.
 - **Scale**: the bot fetches files one at a time. For big PRs, cache by SHA or shallow-clone the head commit instead.
 - **Auth**: a PAT is fine to start. A GitHub App gives per-org install, higher rate limits, and Check Runs with richer annotations.

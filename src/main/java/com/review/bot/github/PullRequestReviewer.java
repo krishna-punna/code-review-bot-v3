@@ -48,7 +48,17 @@ public class PullRequestReviewer {
         String headSha = pr.getHead().getSha();
 
         repo.createCommitStatus(headSha, GHCommitState.PENDING, null, "Running rules…", props.statusContext());
+        try {
+            return runReview(repo, pr, headSha, repoFullName, prNumber);
+        } catch (IOException | RuntimeException e) {
+            // Never leave the status PENDING: a required check would block the merge forever.
+            markFailed(repo, headSha, e);
+            throw e;
+        }
+    }
 
+    private Verdict runReview(GHRepository repo, GHPullRequest pr, String headSha,
+                              String repoFullName, int prNumber) throws IOException {
         List<PositionedFinding> results = new ArrayList<>();
         for (GHPullRequestFileDetail f : pr.listFiles()) {
             if ("removed".equals(f.getStatus()) || f.getPatch() == null) continue;  // binary or deleted
@@ -100,6 +110,16 @@ public class PullRequestReviewer {
     private void setStatus(GHRepository repo, String sha, Verdict verdict) throws IOException {
         GHCommitState state = verdicts.failsGate(verdict) ? GHCommitState.FAILURE : GHCommitState.SUCCESS;
         repo.createCommitStatus(sha, state, null, VerdictFormatter.statusLine(verdict), props.statusContext());
+    }
+
+    private void markFailed(GHRepository repo, String sha, Exception cause) {
+        try {
+            repo.createCommitStatus(sha, GHCommitState.ERROR, null,
+                    "Review failed (" + cause.getClass().getSimpleName() + "); see the bot's logs.",
+                    props.statusContext());
+        } catch (IOException | RuntimeException e) {
+            cause.addSuppressed(e);   // keep the original failure as the one that gets logged
+        }
     }
 
     private static String abbreviate(String sha) {
