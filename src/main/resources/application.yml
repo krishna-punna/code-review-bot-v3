@@ -35,6 +35,7 @@ review:
     - "target/"
     - "src/main/generated/"
     - "samples/"            # demo PRs in this repo; they break the rules on purpose
+    - "samples-rejudge/"    # the fix-and-rejudge demo PR (AC6), same reason
 
   # Per-rule overrides. Omit a rule to use its defaults.
   # severity: WARNING | ERROR | BLOCK   (category is fixed per rule)

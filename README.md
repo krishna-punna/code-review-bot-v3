@@ -52,6 +52,21 @@ The endpoint only reads what is posted and never calls GitHub. It has no authent
 
 A walkthrough for demos, including a live GitHub PR, is in [docs/DEMO.md](docs/DEMO.md).
 
+## Fix and re-review (AC6)
+
+Resubmit a fixed change and the bot re-judges it against its previous review: only files that changed
+are reviewed again, each earlier finding is reported ✅ resolved or ❌ still open (plus 🆕 new ones), and
+the verdict is updated. On GitHub this happens by itself on every new commit to a PR the bot reviewed.
+Elsewhere, pass the previous review along:
+
+```bash
+java -jar target/code-review-bot-v3-3.0.0.jar review --source samples-rejudge/round1 --out r1
+java -jar target/code-review-bot-v3-3.0.0.jar review --source samples-rejudge/round2 --previous r1 --out r2
+scripts/rejudge-demo.sh            # all rounds of the sample, checked
+```
+
+The REST API has `POST /api/reviews/rejudge` for the same. Details: [docs/REJUDGE.md](docs/REJUDGE.md).
+
 ## Automatic polling (no webhook setup needed)
 
 `PullRequestPoller` runs on a schedule. It lists the open PRs in each configured repo and sends every PR that needs a review to the same `/webhook` endpoint, signed with your secret. The webhook code is unchanged; the poller is just a second caller.
@@ -90,8 +105,9 @@ Cron examples: every minute is `0 * * * * *`, every 15 minutes is `0 0/15 * * * 
 | `api` | `ReviewApiController`: `POST /api/reviews` |
 | `cli` | `ReviewCli`: the `review` and `request` commands |
 | `config` | `ReviewProperties`, `PollerProperties` (yml binding), `GitHubConfig` |
+| `rejudge` | `RejudgeService` (fix-and-rejudge, AC6), `ReviewState`, `Rejudge`, `RejudgeFormatter`; `POST /api/reviews/rejudge` is `api.RejudgeApiController` |
 
-Outside `src/`: `samples/` (synthetic PRs), `scripts/` (demo and sample helpers), `docs/` (architecture, demo walkthrough).
+Outside `src/`: `samples/` (synthetic PRs), `samples-rejudge/` (one PR fixed over three rounds, AC6), `scripts/` (demo and sample helpers), `docs/` (architecture, demo walkthrough, fix-and-rejudge).
 
 ## Findings model
 
@@ -175,6 +191,6 @@ In the repo, go to **Settings → Webhooks** and add `https://<host>/webhook` wi
 ## Known limits and next steps
 
 - **Line-anchored rules**: `max-method-length` reports on the method's first line, so it only fires if the PR touches the signature. To catch edits deeper in a method, give `Finding` a line range and match on any changed line in it.
-- **Re-pushes**: every push posts a new review. To avoid noise, store a fingerprint of `ruleId + path + line text` and skip findings already posted.
+- **Re-pushes**: handled by fix-and-rejudge (AC6). A new commit gets a review only if something changed since the previous one, and inline comments only for new findings.
 - **Scale**: the bot fetches files one at a time. For big PRs, cache by SHA or shallow-clone the head commit instead.
 - **Auth**: a PAT is fine to start. A GitHub App gives per-org install, higher rate limits, and Check Runs with richer annotations.
