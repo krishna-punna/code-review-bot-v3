@@ -45,6 +45,9 @@ public class WebhookController {
         this.reviewer = reviewer;
         this.props = props;
         this.mapper = mapper;
+        if (!hasSecret()) {
+            log.error("No webhook secret configured (GITHUB_WEBHOOK_SECRET); every /webhook request will be rejected");
+        }
     }
 
     @PostMapping("/webhook")
@@ -81,17 +84,24 @@ public class WebhookController {
         return ResponseEntity.accepted().body("reviewing " + repo + "#" + number);
     }
 
+    private boolean hasSecret() {
+        return props.webhookSecret() != null && !props.webhookSecret().isBlank();
+    }
+
+    // Fails closed: without a secret anyone could trigger reviews on any repo the token can reach.
     private boolean validSignature(byte[] body, String header) throws Exception {
-        if (props.webhookSecret() == null || props.webhookSecret().isBlank()) {
-            log.warn("No webhook secret configured; accepting unsigned payloads (dev only)");
-            return true;
-        }
+        if (!hasSecret()) return false;
         if (header == null || !header.startsWith("sha256=")) return false;
 
+        byte[] actual;
+        try {
+            actual = HexFormat.of().parseHex(header.substring("sha256=".length()));
+        } catch (IllegalArgumentException e) {
+            return false;                                  // not hex, or odd length
+        }
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(props.webhookSecret().getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
         byte[] expected = mac.doFinal(body);
-        byte[] actual = HexFormat.of().parseHex(header.substring("sha256=".length()));
         return MessageDigest.isEqual(expected, actual);   // constant-time compare
     }
 }

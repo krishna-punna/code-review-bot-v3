@@ -29,7 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * A PR is "legitimate" (sent for review) when:
  *  - it is open and not a draft, and
  *  - its head commit has not been sent by this poller already, and
- *  - its head commit has no finished "rule-review" status yet
+ *  - its head commit has no "rule-review" verdict status (success or failure) yet
  *    (so PRs already reviewed via the real webhook, or before a restart, are skipped).
  */
 @Component
@@ -57,6 +57,10 @@ public class PullRequestPoller {
 
     @Scheduled(cron = "${review.poller.cron:0 0/5 * * * *}")
     public void poll() {
+        if (review.webhookSecret() == null || review.webhookSecret().isBlank()) {
+            log.warn("Poll skipped: no webhook secret configured, so /webhook would reject every request");
+            return;
+        }
         Map<String, String> stillOpen = new HashMap<>();
         int sent = 0;
 
@@ -100,10 +104,14 @@ public class PullRequestPoller {
         return sent;
     }
 
-    /** True if the head commit already carries a finished status from this bot. */
+    /**
+     * True if the head commit already carries a verdict status from this bot. ERROR (a review
+     * that crashed) and PENDING don't count, so after a restart those commits are sent again.
+     */
     private boolean alreadyReviewed(GHRepository repo, String sha) throws Exception {
         for (GHCommitStatus s : repo.listCommitStatuses(sha)) {
-            if (review.statusContext().equals(s.getContext()) && s.getState() != GHCommitState.PENDING) {
+            if (review.statusContext().equals(s.getContext())
+                    && (s.getState() == GHCommitState.SUCCESS || s.getState() == GHCommitState.FAILURE)) {
                 return true;
             }
         }
@@ -119,18 +127,15 @@ public class PullRequestPoller {
             payload.put("repository", Map.of("full_name", repoName));
             byte[] body = mapper.writeValueAsBytes(payload);
 
-            RestClient.RequestBodySpec req = http.post()
+            String response = http.post()
                     .uri(poller.webhookUrl())
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("X-GitHub-Event", "pull_request")
-                    .header("User-Agent", "rule-review-poller");
-
-            String secret = review.webhookSecret();
-            if (secret != null && !secret.isBlank()) {
-                req = req.header("X-Hub-Signature-256", "sha256=" + hmacSha256Hex(secret, body));
-            }
-
-            String response = req.body(body).retrieve().body(String.class);
+                    .header("User-Agent", "rule-review-poller")
+                    .header("X-Hub-Signature-256", "sha256=" + hmacSha256Hex(review.webhookSecret(), body))
+                    .body(body)
+                    .retrieve()
+                    .body(String.class);
             log.info("Sent {} for review: {}", key, response);
             return true;
         } catch (Exception e) {
