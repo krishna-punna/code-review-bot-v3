@@ -5,17 +5,52 @@ A deterministic, rule-based pull request reviewer. There's no AI involved: the s
 ## How it works
 
 ```
-GitHub PR event ──► POST /webhook ──► PullRequestReviewer
-                     (HMAC check)          │
-                                           ├─ list changed files + patches
-                                           ├─ DiffParser: added lines → diff positions
-                                           ├─ fetch file at head SHA → FileContext (lazy AST)
-                                           ├─ RuleEngine: run enabled rules, keep changed lines only
-                                           ├─ post ONE review with inline comments
-                                           └─ commit status "rule-review": success / failure
+GitHub PR event ─► POST /webhook (HMAC check) ─► PullRequestReviewer ─┐  list changed files + patches,
+  (PullRequestPoller is a second, scheduled caller of /webhook)       │  fetch each file at head SHA
+                                                                      ├─► ChangeSet ─► ReviewService
+POST /api/reviews ─┐                                                  │                 ├─ RuleEngine: enabled rules, changed lines only
+CLI `review` ──────┴─► ReviewRequest: unified diff + file contents ───┘                 └─ VerdictEngine: one verdict + must-fix list
+
+On GitHub:     ONE review with inline comments, and commit status "rule-review": success / failure
+API and CLI:   JSON report + Markdown summary; the CLI exits 0 if the gate passed, 1 if it failed
 ```
 
+Every way in runs the same `ReviewService`, so a sample diff gets the verdict it would get on a real PR.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the diagrams.
+
 Every review ends in exactly one verdict: **APPROVE**, **REQUEST_CHANGES** or **BLOCK**. The `rule-review` status turns red on BLOCK or REQUEST_CHANGES (configurable). Make `rule-review` a required check in branch protection to block merges.
+
+## Review a change without GitHub
+
+Needs Java 17+ and Maven. `samples/` holds synthetic PRs, one per verdict ([samples/README.md](samples/README.md)).
+
+```bash
+mvn -DskipTests package
+scripts/demo.sh                     # reviews every sample and checks its expected verdict
+```
+
+Review any diff with the CLI. `--source` is where the new version of the files is, because a diff
+alone doesn't hold the full files the rules need. Files the diff adds can be rebuilt from it, so `--source` is optional for those.
+
+```bash
+git diff main...my-branch > my.diff          # with my-branch checked out
+java -jar target/code-review-bot-v3-3.0.0.jar review --diff my.diff --source . --out review-out
+```
+
+It prints the summary, writes `review-out/result.json` and `summary.md`, and exits 0 if the gate passed,
+1 if it failed, or 2 for bad input. Leave out `--diff` to review every file under `--source` in full.
+
+Or post the change to a running server:
+
+```bash
+java -jar target/code-review-bot-v3-3.0.0.jar request --diff my.diff --source . > req.json
+curl -X POST localhost:8080/api/reviews -H 'Content-Type: application/json' --data-binary @req.json
+```
+
+The request body is `{"title": "...", "diff": "<git diff output>", "files": {"path": "full new content"}}`.
+The endpoint only reads what is posted and never calls GitHub. It has no authentication, so don't expose it publicly.
+
+A walkthrough for demos, including a live GitHub PR, is in [docs/DEMO.md](docs/DEMO.md).
 
 ## Automatic polling (no webhook setup needed)
 
@@ -46,12 +81,17 @@ Cron examples: every minute is `0 * * * * *`, every 15 minutes is `0 0/15 * * * 
 
 | Package | What's in it |
 |---|---|
+| `review` | `ReviewService` (the workflow every entry point uses), `ChangeSet`, `ReviewRequest`, `UnifiedDiff`, `DiffParser`, `ReviewReport` |
 | `rule` | `Rule` interface, `Finding`, `Severity`, `Category`, `FileContext`, `RuleEngine` |
 | `rule.impl` | Sample rules: `no-system-out`, `no-field-injection`, `max-method-length`, `layer-dependency` |
-| `github` | `WebhookController`, `PullRequestReviewer`, `DiffParser` |
 | `verdict` | `VerdictEngine`, `Verdict`, `VerdictFormatter`, `VerdictProperties` |
-| `config` | `ReviewProperties`, `PollerProperties` (yml binding), `GitHubConfig` |
+| `github` | `WebhookController`, `PullRequestReviewer` |
 | `poller` | `PullRequestPoller`: scheduled job that finds PRs and calls `/webhook` |
+| `api` | `ReviewApiController`: `POST /api/reviews` |
+| `cli` | `ReviewCli`: the `review` and `request` commands |
+| `config` | `ReviewProperties`, `PollerProperties` (yml binding), `GitHubConfig` |
+
+Outside `src/`: `samples/` (synthetic PRs), `scripts/` (demo and sample helpers), `docs/` (architecture, demo walkthrough).
 
 ## Findings model
 
@@ -119,10 +159,12 @@ Rules report findings on any line. The engine drops findings on lines the PR did
 
 ## Run
 
+Needs Java 17+ and Maven.
+
 ```bash
 export GITHUB_TOKEN=...            # fine-grained PAT: Pull requests RW, Contents R, Commit statuses RW
 export GITHUB_WEBHOOK_SECRET=...   # required; same value as in the repo's webhook settings
-mvn test
+mvn verify                         # unit and end-to-end tests, then the jar
 mvn spring-boot:run
 ```
 

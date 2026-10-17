@@ -1,4 +1,4 @@
-package com.review.bot.github;
+package com.review.bot.review;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -16,7 +16,8 @@ import java.util.regex.Pattern;
  */
 public final class DiffParser {
 
-    private static final Pattern HUNK = Pattern.compile("^@@ -\\d+(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@.*");
+    /** Groups: 1 old start, 2 old count, 3 new start, 4 new count (a missing count means 1). */
+    static final Pattern HUNK = Pattern.compile("^@@ -(\\d+)(?:,(\\d+))? \\+(\\d+)(?:,(\\d+))? @@.*");
 
     private DiffParser() {}
 
@@ -33,7 +34,7 @@ public final class DiffParser {
             if (m.matches()) {
                 if (firstHunkSeen) position++;   // later hunk headers count as a position
                 firstHunkSeen = true;
-                newLine = Integer.parseInt(m.group(1));
+                newLine = Integer.parseInt(m.group(3));
                 continue;
             }
             if (!firstHunkSeen) continue;
@@ -48,6 +49,25 @@ public final class DiffParser {
                 // "\ No newline at end of file"
             } else {
                 newLine++;                       // context line
+            }
+        }
+        return result;
+    }
+
+    /** Text of every line on the new side of the patch (added and context lines), by new line number. */
+    public static Map<Integer, String> newSideLines(String patch) {
+        Map<Integer, String> result = new LinkedHashMap<>();
+        if (patch == null || patch.isEmpty()) return result;
+
+        int newLine = 0;
+        boolean firstHunkSeen = false;
+        for (String line : patch.split("\n", -1)) {
+            Matcher m = HUNK.matcher(line);
+            if (m.matches()) {
+                newLine = Integer.parseInt(m.group(3));
+                firstHunkSeen = true;
+            } else if (firstHunkSeen && !line.startsWith("-") && !line.startsWith("\\")) {
+                result.put(newLine++, line.isEmpty() ? "" : line.substring(1));   // "" = blank context line
             }
         }
         return result;

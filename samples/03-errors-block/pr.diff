@@ -1,0 +1,34 @@
+diff --git a/src/main/java/com/acme/orders/web/OrderController.java b/src/main/java/com/acme/orders/web/OrderController.java
+new file mode 100644
+index 0000000..d883ff5
+--- /dev/null
++++ b/src/main/java/com/acme/orders/web/OrderController.java
+@@ -0,0 +1,28 @@
++package com.acme.orders.web;
++
++import com.acme.orders.model.Order;
++import com.acme.orders.repository.OrderRepository;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.http.ResponseEntity;
++import org.springframework.web.bind.annotation.GetMapping;
++import org.springframework.web.bind.annotation.PathVariable;
++import org.springframework.web.bind.annotation.RestController;
++
++/** HTTP endpoint for order lookups. */
++@RestController
++public class OrderController {
++
++    @Autowired
++    private OrderRepository orders;
++
++    @GetMapping("/orders/{id}")
++    public ResponseEntity<Order> get(@PathVariable String id) {
++        System.out.println("GET /orders/" + id);
++        try {
++            return orders.findById(id).map(ResponseEntity::ok).orElse(ResponseEntity.notFound().build());
++        } catch (RuntimeException e) {
++            e.printStackTrace();
++            return ResponseEntity.internalServerError().build();
++        }
++    }
++}

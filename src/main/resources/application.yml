@@ -4,10 +4,11 @@ server:
 review:
   # Token needs: Pull requests (read/write), Contents (read), Commit statuses (read/write).
   # Never put the token itself in this file; set it in the environment.
-  github-token: ${GITHUB_TOKEN:}
-  # Required: /webhook rejects every request while this is empty.
-  webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+  github-token:
+  webhook-secret:
   status-context: rule-review
+
+
 
   # Automatic PR polling. Finds PRs that need a review and sends them to /webhook.
   # Works alongside the real GitHub webhook; PRs already reviewed are skipped.
@@ -33,6 +34,7 @@ review:
   exclude-paths:
     - "target/"
     - "src/main/generated/"
+    - "samples/"            # demo PRs in this repo; they break the rules on purpose
 
   # Per-rule overrides. Omit a rule to use its defaults.
   # severity: WARNING | ERROR | BLOCK   (category is fixed per rule)

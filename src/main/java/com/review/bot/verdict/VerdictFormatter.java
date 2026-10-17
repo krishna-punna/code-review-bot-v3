@@ -16,6 +16,11 @@ public final class VerdictFormatter {
 
     private VerdictFormatter() {}
 
+    /** Summary for output outside GitHub (CLI, REST API), where there are no inline comments. */
+    public static String markdown(Verdict v) {
+        return markdown(v, Integer.MAX_VALUE);
+    }
+
     /** Full review body: verdict, reason, must-fix list, counts table. */
     public static String markdown(Verdict v, int inlineLimit) {
         StringBuilder sb = new StringBuilder();

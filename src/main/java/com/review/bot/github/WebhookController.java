@@ -6,6 +6,7 @@ import com.review.bot.config.ReviewProperties;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,6 +21,7 @@ import java.util.concurrent.Executors;
 
 /** Receives GitHub "pull_request" webhooks and reviews the PR in the background. */
 @RestController
+@ConditionalOnWebApplication   // not in CLI mode, which has no web server
 public class WebhookController {
 
     private static final Logger log = LoggerFactory.getLogger(WebhookController.class);

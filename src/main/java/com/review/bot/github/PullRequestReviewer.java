@@ -1,11 +1,14 @@
 package com.review.bot.github;
 
 import com.review.bot.config.ReviewProperties;
-import com.review.bot.rule.FileContext;
+import com.review.bot.review.ChangeSet;
+import com.review.bot.review.ChangeSet.ChangedFile;
+import com.review.bot.review.DiffParser;
+import com.review.bot.review.ReviewResult;
+import com.review.bot.review.ReviewService;
 import com.review.bot.rule.Finding;
 import com.review.bot.rule.RuleEngine;
 import com.review.bot.verdict.Verdict;
-import com.review.bot.verdict.VerdictEngine;
 import com.review.bot.verdict.VerdictFormatter;
 import org.kohsuke.github.*;
 import org.slf4j.Logger;
@@ -16,11 +19,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Fetches a PR's changed files, runs the rule engine, computes the verdict, then:
+ * GitHub adapter for {@link ReviewService}. Fetches a PR's changed files, reviews them, then:
  *  1. posts one review: verdict, must-fix list, counts, and inline comments, and
  *  2. sets the commit status (the CI gate) from the verdict.
  */
@@ -31,14 +35,12 @@ public class PullRequestReviewer {
     private static final int MAX_INLINE_COMMENTS = 50;
 
     private final GitHub github;
-    private final RuleEngine engine;
-    private final VerdictEngine verdicts;
+    private final ReviewService reviews;
     private final ReviewProperties props;
 
-    public PullRequestReviewer(GitHub github, RuleEngine engine, VerdictEngine verdicts, ReviewProperties props) {
+    public PullRequestReviewer(GitHub github, ReviewService reviews, ReviewProperties props) {
         this.github = github;
-        this.engine = engine;
-        this.verdicts = verdicts;
+        this.reviews = reviews;
         this.props = props;
     }
 
@@ -59,24 +61,26 @@ public class PullRequestReviewer {
 
     private Verdict runReview(GHRepository repo, GHPullRequest pr, String headSha,
                               String repoFullName, int prNumber) throws IOException {
-        List<PositionedFinding> results = new ArrayList<>();
-        for (GHPullRequestFileDetail f : pr.listFiles()) {
+        List<ChangedFile> files = new ArrayList<>();
+        Map<String, Map<Integer, Integer>> positions = new HashMap<>();   // path -> new line -> diff position
+        for (GHPullRequestFileDetail f : pr.listFiles().toList()) {
             if ("removed".equals(f.getStatus()) || f.getPatch() == null) continue;  // binary or deleted
 
-            Map<Integer, Integer> positions = DiffParser.addedLinePositions(f.getPatch());
-            if (positions.isEmpty()) continue;
+            Map<Integer, Integer> filePositions = DiffParser.addedLinePositions(f.getPatch());
+            if (filePositions.isEmpty()) continue;
 
-            String content = readFile(repo, f.getFilename(), headSha);
-            FileContext ctx = new FileContext(f.getFilename(), content, positions.keySet());
-
-            for (Finding finding : engine.review(ctx)) {
-                results.add(new PositionedFinding(finding, positions.get(finding.line())));
-            }
+            files.add(new ChangedFile(f.getFilename(), readFile(repo, f.getFilename(), headSha), filePositions.keySet()));
+            positions.put(f.getFilename(), filePositions);
         }
 
-        Verdict verdict = verdicts.decide(results.stream().map(PositionedFinding::finding).toList());
-        postReview(pr, headSha, results, verdict);
-        setStatus(repo, headSha, verdict);
+        ReviewResult result = reviews.review(new ChangeSet(repoFullName + "#" + prNumber, files));
+        List<PositionedFinding> positioned = result.findings().stream()
+                .map(finding -> new PositionedFinding(finding, positions.get(finding.path()).get(finding.line())))
+                .toList();
+
+        Verdict verdict = result.verdict();
+        postReview(pr, headSha, positioned, verdict);
+        setStatus(repo, headSha, result);
         log.info("Reviewed {}#{} @ {}: {}", repoFullName, prNumber, abbreviate(headSha), verdict.reason());
         return verdict;
     }
@@ -107,9 +111,9 @@ public class PullRequestReviewer {
         review.create();
     }
 
-    private void setStatus(GHRepository repo, String sha, Verdict verdict) throws IOException {
-        GHCommitState state = verdicts.failsGate(verdict) ? GHCommitState.FAILURE : GHCommitState.SUCCESS;
-        repo.createCommitStatus(sha, state, null, VerdictFormatter.statusLine(verdict), props.statusContext());
+    private void setStatus(GHRepository repo, String sha, ReviewResult result) throws IOException {
+        GHCommitState state = result.gatePassed() ? GHCommitState.SUCCESS : GHCommitState.FAILURE;
+        repo.createCommitStatus(sha, state, null, VerdictFormatter.statusLine(result.verdict()), props.statusContext());
     }
 
     private void markFailed(GHRepository repo, String sha, Exception cause) {
