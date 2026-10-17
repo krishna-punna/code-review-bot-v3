@@ -1,0 +1,47 @@
+diff --git a/src/main/java/com/acme/orders/legacy/LegacyReportJob.java b/src/main/java/com/acme/orders/legacy/LegacyReportJob.java
+index e8f0863..fe1cd0b 100644
+--- a/src/main/java/com/acme/orders/legacy/LegacyReportJob.java
++++ b/src/main/java/com/acme/orders/legacy/LegacyReportJob.java
+@@ -6,6 +6,9 @@ import java.util.List;
+ public class LegacyReportJob {
+ 
+     public void run(List<String> orderIds) {
++        if (orderIds.isEmpty()) {
++            return;   // nothing to report on quiet nights
++        }
+         System.out.println("Report for " + orderIds.size() + " orders");
+         for (String id : orderIds) {
+             System.out.println(" - " + id);
+diff --git a/src/main/java/com/acme/orders/service/OrderLookupService.java b/src/main/java/com/acme/orders/service/OrderLookupService.java
+new file mode 100644
+index 0000000..3f31c92
+--- /dev/null
++++ b/src/main/java/com/acme/orders/service/OrderLookupService.java
+@@ -0,0 +1,27 @@
++package com.acme.orders.service;
++
++import com.acme.orders.model.Order;
++import com.acme.orders.repository.OrderRepository;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.stereotype.Service;
++
++import java.util.Optional;
++
++/** Looks up orders for the web layer, so controllers never touch the repository. */
++@Service
++public class OrderLookupService {
++
++    private static final Logger log = LoggerFactory.getLogger(OrderLookupService.class);
++
++    private final OrderRepository orders;
++
++    public OrderLookupService(OrderRepository orders) {
++        this.orders = orders;
++    }
++
++    public Optional<Order> find(String orderId) {
++        log.debug("Looking up order {}", orderId);
++        return orders.findById(orderId);
++    }
++}

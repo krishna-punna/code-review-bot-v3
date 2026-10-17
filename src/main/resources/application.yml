@@ -33,6 +33,7 @@ review:
   exclude-paths:
     - "target/"
     - "src/main/generated/"
+    - "samples/"            # demo PRs in this repo; they break the rules on purpose
 
   # Per-rule overrides. Omit a rule to use its defaults.
   # severity: WARNING | ERROR | BLOCK   (category is fixed per rule)

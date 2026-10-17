@@ -1,7 +1,7 @@
 package com.review.bot;
 
 import com.review.bot.config.ReviewProperties;
-import com.review.bot.github.DiffParser;
+import com.review.bot.review.DiffParser;
 import com.review.bot.rule.FileContext;
 import com.review.bot.rule.Finding;
 import com.review.bot.rule.RuleEngine;
