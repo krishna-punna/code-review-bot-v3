@@ -1,6 +1,8 @@
 package com.review.bot.github;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.review.bot.ci.CiProperties;
+import com.review.bot.ci.GateSummary;
 import com.review.bot.config.ReviewProperties;
 import com.review.bot.rejudge.FileInput;
 import com.review.bot.rejudge.Rejudge;
@@ -25,6 +27,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -45,6 +48,10 @@ import java.util.Set;
  * review lists what was resolved, what is still open and what is new, and the earlier inline
  * comment of each resolved finding gets a "resolved" reply. The state for this lives in the
  * bot's own review, and only reviews written by the bot's account are trusted.
+ *
+ * CI gate visibility (AC7): every review starts with the gate result, the verdict and the finding
+ * counts per severity, and the commit status links to that review. Clean PRs get a short summary
+ * too (review.ci.summary-on-approve), so there is always something to link to.
  */
 @Service
 public class PullRequestReviewer {
@@ -57,6 +64,7 @@ public class PullRequestReviewer {
     private final ReviewProperties props;
     private final RejudgeService rejudge;   // null: every review is a full first review, no state kept
     private final ObjectMapper mapper;
+    private final CiProperties ci;
     private volatile String botLogin;
 
     /** Reviews every PR in full each time, keeping no state. */
@@ -64,14 +72,20 @@ public class PullRequestReviewer {
         this(github, reviews, props, null, null);
     }
 
-    @Autowired
     public PullRequestReviewer(GitHub github, ReviewService reviews, ReviewProperties props,
                                RejudgeService rejudge, ObjectMapper mapper) {
+        this(github, reviews, props, rejudge, mapper, CiProperties.defaults());
+    }
+
+    @Autowired
+    public PullRequestReviewer(GitHub github, ReviewService reviews, ReviewProperties props,
+                               RejudgeService rejudge, ObjectMapper mapper, CiProperties ci) {
         this.github = github;
         this.reviews = reviews;
         this.props = props;
         this.rejudge = rejudge;
         this.mapper = mapper;
+        this.ci = ci;
     }
 
     public Verdict review(String repoFullName, int prNumber) throws IOException {
@@ -117,8 +131,8 @@ public class PullRequestReviewer {
                 .toList();
 
         Verdict verdict = result.verdict();
-        postReview(pr, headSha, positioned, rejudged);
-        setStatus(repo, headSha, result);
+        String summaryUrl = postReview(pr, headSha, positioned, rejudged);
+        setStatus(repo, headSha, result, summaryUrl != null ? summaryUrl : prUrl(pr));   // the gate links to its summary
         log.info("Reviewed {}#{} @ {}: {}", repoFullName, prNumber, abbreviate(headSha), verdict.reason());
         Rejudge change = rejudged.rejudge();
         if (change != null) {
@@ -168,19 +182,22 @@ public class PullRequestReviewer {
         }
     }
 
-    private void postReview(GHPullRequest pr, String sha, List<PositionedFinding> results,
-                            RejudgeResult rejudged) throws IOException {
+    /** Posts the review and returns its URL, or null if nothing was posted (or GitHub gave no URL). */
+    private String postReview(GHPullRequest pr, String sha, List<PositionedFinding> results,
+                              RejudgeResult rejudged) throws IOException {
         Rejudge change = rejudged.rejudge();
-        if (change == null && results.isEmpty()) return;   // clean PR: the green APPROVE status is enough, no comment noise
+        if (change == null && results.isEmpty() && !ci.summaryOnApprove()) return null;   // clean PR: the status is enough
         if (change != null && change.resolved().isEmpty() && change.newFindings().isEmpty()
                 && change.previousDecision() == rejudged.result().verdict().decision()) {
-            return;   // nothing changed since the previous review, which still says it all
+            return null;   // nothing changed since the previous review, which still says it all
         }
 
         // Always posted as a COMMENT review. A PAT cannot APPROVE / REQUEST_CHANGES on its owner's
         // own PRs (GitHub returns 422), and the CI gate is what enforces the verdict.
         String body = VerdictFormatter.markdown(rejudged.result().verdict(), MAX_INLINE_COMMENTS);
         if (change != null) body = RejudgeFormatter.section(change, rejudged.result()) + "\n" + body;
+        String filesUrl = prUrl(pr);
+        body = GateSummary.headline(rejudged.result(), props.statusContext(), filesUrl == null ? null : filesUrl + "/files") + body;
         if (rejudged.state() != null) body += ReviewStateMarker.encode(rejudged.state(), mapper, body.length());
         GHPullRequestReviewBuilder review = pr.createReview()
                 .commitId(sha)
@@ -197,8 +214,14 @@ public class PullRequestReviewer {
                 .limit(MAX_INLINE_COMMENTS)
                 .forEach(r -> review.comment(commentBody(r.finding()), r.finding().path(), r.position()));
 
-        review.create();
+        GHPullRequestReview posted = review.create();
         if (change != null) markResolved(pr, sha, change.resolved());
+        return posted == null || posted.getHtmlUrl() == null ? null : posted.getHtmlUrl().toString();
+    }
+
+    private static String prUrl(GHPullRequest pr) {
+        URL url = pr.getHtmlUrl();
+        return url == null ? null : url.toString();
     }
 
     private String commentBody(Finding finding) {
@@ -232,9 +255,9 @@ public class PullRequestReviewer {
         }
     }
 
-    private void setStatus(GHRepository repo, String sha, ReviewResult result) throws IOException {
+    private void setStatus(GHRepository repo, String sha, ReviewResult result, String detailsUrl) throws IOException {
         GHCommitState state = result.gatePassed() ? GHCommitState.SUCCESS : GHCommitState.FAILURE;
-        repo.createCommitStatus(sha, state, null, VerdictFormatter.statusLine(result.verdict()), props.statusContext());
+        repo.createCommitStatus(sha, state, detailsUrl, VerdictFormatter.statusLine(result.verdict()), props.statusContext());
     }
 
     private void markFailed(GHRepository repo, String sha, Exception cause) {

@@ -10,6 +10,10 @@ review:
 
 
 
+  # CI gate (AC7): every evaluated commit gets a summary review, and the status check links to it.
+  ci:
+    summary-on-approve: true   # also post a summary on clean PRs (false: only the green status)
+
   # Automatic PR polling. Finds PRs that need a review and sends them to /webhook.
   # Works alongside the real GitHub webhook; PRs already reviewed are skipped.
   poller:

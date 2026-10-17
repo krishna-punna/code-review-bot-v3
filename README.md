@@ -67,6 +67,20 @@ scripts/rejudge-demo.sh            # all rounds of the sample, checked
 
 The REST API has `POST /api/reviews/rejudge` for the same. Details: [docs/REJUDGE.md](docs/REJUDGE.md).
 
+## CI gate (AC7)
+
+Every evaluated change gets a pass/fail gate and a summary with the verdict, the finding counts per severity,
+and a link to the details. On GitHub, the `rule-review` status links to the bot's summary review, which every
+evaluated commit gets, clean ones included (`review.ci.summary-on-approve`). In any other CI, run the gate as a
+stage; it exits 1 when the gate fails:
+
+```bash
+ci/rule-review-gate.sh                         # this checkout vs origin/main; writes target/rule-review/
+ci/simulate-pipeline.sh --skip-tests --diff samples/03-errors-block/pr.diff --source samples/03-errors-block/head
+```
+
+Details, including how to make `rule-review` a required check: [docs/CI-GATE.md](docs/CI-GATE.md).
+
 ## Automatic polling (no webhook setup needed)
 
 `PullRequestPoller` runs on a schedule. It lists the open PRs in each configured repo and sends every PR that needs a review to the same `/webhook` endpoint, signed with your secret. The webhook code is unchanged; the poller is just a second caller.
@@ -105,9 +119,10 @@ Cron examples: every minute is `0 * * * * *`, every 15 minutes is `0 0/15 * * * 
 | `api` | `ReviewApiController`: `POST /api/reviews` |
 | `cli` | `ReviewCli`: the `review` and `request` commands |
 | `config` | `ReviewProperties`, `PollerProperties` (yml binding), `GitHubConfig` |
+| `ci` | `CiProperties` (`review.ci`), `GateSummary`: the gate line at the top of each review (AC7) |
 | `rejudge` | `RejudgeService` (fix-and-rejudge, AC6), `ReviewState`, `Rejudge`, `RejudgeFormatter`; `POST /api/reviews/rejudge` is `api.RejudgeApiController` |
 
-Outside `src/`: `samples/` (synthetic PRs), `samples-rejudge/` (one PR fixed over three rounds, AC6), `scripts/` (demo and sample helpers), `docs/` (architecture, demo walkthrough, fix-and-rejudge).
+Outside `src/`: `samples/` (synthetic PRs), `samples-rejudge/` (one PR fixed over three rounds, AC6), `scripts/` (demo and sample helpers), `ci/` (the CI gate stage and a simulated pipeline, AC7), `docs/` (architecture, demo walkthrough, fix-and-rejudge).
 
 ## Findings model
 
